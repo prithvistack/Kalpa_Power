@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getApiErrorMessage, googleLogin, login, register } from '../api/api';
+import OtpScreen from '../components/OtpScreen';
 import { useAuthStore } from '../store/authStore';
 
 export default function LoginPage() {
@@ -9,6 +10,8 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // MFA state — lives only here, never persisted
+  const [mfaState, setMfaState] = useState(null); // { sessionToken, email, password }
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
   const location = useLocation();
@@ -47,8 +50,18 @@ export default function LoginPage() {
   async function submit(e) {
     e.preventDefault(); setLoading(true); setError('');
     try {
-      const { data } = await (mode === 'login' ? login : register)(form);
-      setSession(data); navigate(from, { replace: true });
+      const { data } = await login(form);
+      if (data.mfa_required && data.mfa_session_token) {
+        // MFA active — hand off to OTP screen; do NOT call setSession yet
+        setMfaState({
+          sessionToken: data.mfa_session_token,
+          email: form.email,
+          password: form.password,
+        });
+      } else {
+        // MFA disabled (SMTP not configured) — original flow
+        setSession(data); navigate(from, { replace: true });
+      }
     } catch (err) { setError(getApiErrorMessage(err, 'Authentication failed')); }
     finally { setLoading(false); }
   }
@@ -60,6 +73,25 @@ export default function LoginPage() {
       setSession(data); navigate(from, { replace: true });
     } catch (err) { setError(getApiErrorMessage(err, 'Could not create demo session')); }
     finally { setLoading(false); }
+  }
+
+  // OTP verified successfully — receive the full session from OtpScreen
+  function handleOtpSuccess(sessionData) {
+    setSession(sessionData);
+    navigate(from, { replace: true });
+  }
+
+  // Show OTP screen when MFA challenge is active
+  if (mfaState) {
+    return (
+      <OtpScreen
+        initialSessionToken={mfaState.sessionToken}
+        email={mfaState.email}
+        password={mfaState.password}
+        onSuccess={handleOtpSuccess}
+        onBack={() => setMfaState(null)}
+      />
+    );
   }
 
   return (

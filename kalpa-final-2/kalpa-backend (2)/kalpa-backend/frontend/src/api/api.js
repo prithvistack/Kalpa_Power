@@ -28,6 +28,7 @@ api.interceptors.response.use(
 
 export const register = (payload) => api.post('/auth/register', payload);
 export const login = (payload) => api.post('/auth/login', payload);
+export const verifyOtp = (payload) => api.post('/auth/verify-otp', payload);
 export const googleLogin = (credential) => api.post('/auth/google', { credential });
 export const identifyProduct = (payload) => api.post('/identify', payload);
 export const getProduct = (productId) => api.get(`/product/${productId}`);

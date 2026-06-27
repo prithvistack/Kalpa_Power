@@ -22,8 +22,10 @@ if BACKEND_DIR not in sys.path:
 # ---------------------------------------------------------------------------
 from app.core.config import settings
 from app.database.db import Base
-import app.models.db_models   # noqa: F401
-import app.models.user        # noqa: F401
+import app.models.db_models    # noqa: F401
+import app.models.user         # noqa: F401
+import app.models.audit_log    # noqa: F401
+import app.models.otp_token    # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Alembic config object

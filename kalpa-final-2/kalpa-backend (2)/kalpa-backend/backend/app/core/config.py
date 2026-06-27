@@ -49,6 +49,32 @@ class Settings:
         "ALLOWED_ORIGINS",
         "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
     )
+    # Default admin seeding — only used when no admin account exists
+    default_admin_email: str = os.getenv("DEFAULT_ADMIN_EMAIL", "")
+    default_admin_password: str = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
+    default_admin_name: str = os.getenv("DEFAULT_ADMIN_NAME", "System Administrator")
+
+    # Environment — controls dev-only features (demo email, /dev/* endpoints)
+    app_env: str = os.getenv("APP_ENV", "development")
+
+    # Gmail SMTP — all read from .env, never hardcoded
+    smtp_host: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_username: str = os.getenv("SMTP_USERNAME", "")
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    smtp_from: str = os.getenv("SMTP_FROM", "")
+
+    # MFA settings
+    otp_expire_minutes: int = int(os.getenv("OTP_EXPIRE_MINUTES", "5"))
+    otp_max_attempts: int = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+
+    @property
+    def smtp_enabled(self) -> bool:
+        return bool(self.smtp_username and self.smtp_password)
+
+    @property
+    def is_development(self) -> bool:
+        return self.app_env.lower() in ("development", "dev", "local")
 
 
 settings = Settings()

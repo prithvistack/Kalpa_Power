@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -34,6 +35,11 @@ class LoginRequest(BaseModel):
         return cleaned
 
 
+class VerifyOTPRequest(BaseModel):
+    mfa_session_token: str
+    otp: str = Field(min_length=6, max_length=6)
+
+
 class GoogleLoginRequest(BaseModel):
     credential: str
 
@@ -53,3 +59,18 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     user: UserOut
+
+
+class MFARequiredResponse(BaseModel):
+    """Returned by POST /auth/login when MFA is active.
+
+    The client must immediately call POST /auth/verify-otp with
+    mfa_session_token + the 6-digit OTP sent to the user's email.
+    """
+    mfa_required: bool = True
+    mfa_session_token: str
+    message: str = "OTP sent to your registered email address"
+
+
+# Union type used as the login response model
+LoginResponse = Union[TokenResponse, MFARequiredResponse]

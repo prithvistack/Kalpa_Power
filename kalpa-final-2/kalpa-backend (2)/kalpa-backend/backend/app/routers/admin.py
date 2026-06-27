@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import require_role
@@ -13,8 +13,9 @@ from app.schemas.admin import (
     ProductCreateRequest,
     ProductEventCreateRequest,
 )
-from app.services.qr_service import generate_qr_base64
+from app.services.audit_service import AuditAction, log_action
 from app.services.notification_service import create_product_notification
+from app.services.qr_service import generate_qr_base64
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -23,8 +24,13 @@ def _model_id(model: str) -> str:
     return "MDL-" + "".join(ch if ch.isalnum() else "-" for ch in model.upper()).strip("-")[:40]
 
 
+def _ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
 @router.post("/product", status_code=status.HTTP_201_CREATED)
 def create_product(
+    request: Request,
     payload: ProductCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
@@ -64,15 +70,21 @@ def create_product(
     )
     db.add(product)
     db.commit()
-    
-    # Create notification for new product
+
     create_product_notification(db, payload.product_id, f"New asset added: {payload.product_id}")
-    
+
+    log_action(AuditAction.PRODUCT_CREATED, user=current_user,
+               entity_type="PRODUCT", entity_id=payload.product_id,
+               new={"product_id": payload.product_id, "location": payload.location,
+                    "status": payload.status},
+               ip=_ip(request))
+
     return {"status": "created", "product_id": product.product_id}
 
 
 @router.post("/event", status_code=status.HTTP_201_CREATED)
 def create_event(
+    request: Request,
     payload: ProductEventCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("admin", "technician")),
@@ -93,6 +105,13 @@ def create_event(
     )
     db.add(event)
     db.commit()
+
+    log_action(AuditAction.EVENT_CREATED, user=current_user,
+               entity_type="PRODUCT_EVENT", entity_id=event.id,
+               new={"product_id": payload.product_id, "event_type": payload.event_type,
+                    "date": str(payload.date)},
+               ip=_ip(request))
+
     return {"status": "created", "event_id": event.id}
 
 

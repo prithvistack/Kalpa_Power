@@ -1,6 +1,4 @@
-
 import logging
-import os
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,14 +9,20 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.limiter import limiter
+from app.core.security import hash_password
 from app.database.db import SessionLocal, get_db
 from app.models.user import User
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
+from app.routers.csv_import import router as csv_import_router
 from app.routers.notifications import router as notifications_router
 from app.routers.products import router as products_router
 from app.routers.scans import router as scans_router
-from app.services.notification_service import generate_notifications_for_products
+from app.services.notification_service import (
+    daily_notification_job,
+    generate_notifications_for_products,
+    seed_demo_notification,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,18 +31,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Schema is managed by Alembic — run `alembic upgrade head` before deploying.
-# Initialize app
+
 app = FastAPI(
     title="Kalpa Power Ltd — Product Intelligence API",
     description="Asset lifecycle tracking and product intelligence system",
     version="1.0.0",
 )
 
+# ---------------------------------------------------------------------------
 # Rate limiter
+# ---------------------------------------------------------------------------
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — only allow configured origins
+# ---------------------------------------------------------------------------
+# CORS
+# ---------------------------------------------------------------------------
 _origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
@@ -48,37 +56,102 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
-app.include_router(products_router)
-app.include_router(auth_router)
-app.include_router(scans_router)
-app.include_router(admin_router)
-app.include_router(notifications_router)
+# ---------------------------------------------------------------------------
+# API versioning
+# v1 routes appear in /docs; legacy unversioned routes are kept for the frontend.
+# ---------------------------------------------------------------------------
+_V1 = "/v1"
+_ALL_ROUTERS = [
+    auth_router,
+    products_router,
+    notifications_router,
+    admin_router,
+    scans_router,
+    csv_import_router,
+]
 
-# Auto-seed database
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "kalpa.db")
+for _r in _ALL_ROUTERS:
+    app.include_router(_r, prefix=_V1)
 
-if not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) < 1000:
-    try:
-        from ..seed.seed import seed
-        seed()
-        logger.info("Database seeded successfully")
-    except Exception as e:
-        logger.warning("Seeding skipped: %s", e)
+for _r in _ALL_ROUTERS:
+    app.include_router(_r, include_in_schema=False)  # backward-compat legacy paths
 
-# Generate notifications on startup
-try:
+# Dev-only router — registered only in development mode
+if settings.is_development:
+    from app.routers.dev import router as dev_router
+    app.include_router(dev_router)
+    logger.info("Dev endpoints enabled at /dev/* (APP_ENV=%s)", settings.app_env)
+
+# ---------------------------------------------------------------------------
+# Startup: admin seeding
+# ---------------------------------------------------------------------------
+def _seed_admin() -> None:
+    email = settings.default_admin_email.strip().lower()
+    password = settings.default_admin_password.strip()
+    if not email or not password:
+        return
     db = SessionLocal()
-    generate_notifications_for_products(db)
-    db.close()
+    try:
+        if db.query(User).filter(User.role == "admin").first():
+            return
+        if db.query(User).filter(User.email == email).first():
+            return
+        db.add(User(email=email, password_hash=hash_password(password), role="admin"))
+        db.commit()
+        logger.info("Default admin account created: %s", email)
+    except Exception as exc:
+        logger.warning("Admin seeding failed: %s", exc)
+        db.rollback()
+    finally:
+        db.close()
+
+
+_seed_admin()
+
+# ---------------------------------------------------------------------------
+# Startup: in-app notifications
+# ---------------------------------------------------------------------------
+try:
+    _db = SessionLocal()
+    generate_notifications_for_products(_db)
+    _db.close()
     logger.info("Startup notifications generated")
-except Exception as e:
-    logger.warning("Notification generation skipped: %s", e)
+except Exception as _exc:
+    logger.warning("Notification generation skipped: %s", _exc)
 
+# ---------------------------------------------------------------------------
+# Startup: dev demo seed (once-only, development mode only)
+# ---------------------------------------------------------------------------
+if settings.is_development:
+    try:
+        seeded = seed_demo_notification(demo_email="prithvikhedekar9092@gmail.com")
+        if seeded:
+            logger.info("Dev demo: maintenance reminder seeded and email queued")
+        else:
+            logger.info("Dev demo: already seeded previously — skipped")
+    except Exception as _exc:
+        logger.warning("Dev demo seed failed: %s", _exc)
 
-@app.get("/")
+# ---------------------------------------------------------------------------
+# Background scheduler — daily notification job
+# ---------------------------------------------------------------------------
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    _scheduler = BackgroundScheduler(timezone="UTC")
+    _scheduler.add_job(daily_notification_job, "interval", hours=24,
+                       id="daily_notifications", replace_existing=True)
+    _scheduler.start()
+    logger.info("Background scheduler started — daily notifications every 24 h")
+except Exception as _exc:
+    logger.warning("Scheduler startup failed: %s", _exc)
+
+# ---------------------------------------------------------------------------
+# Core endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/", tags=["root"])
 def root():
-    return {"status": "ok", "message": "Kalpa Power API running"}
+    return {"status": "ok", "message": "Kalpa Power API running", "version": "v1"}
 
 
 @app.get("/health", tags=["health"])
@@ -89,4 +162,10 @@ def health(db: Session = Depends(get_db)):
     except Exception as exc:
         logger.error("Health check — DB unreachable: %s", exc)
         db_status = "error"
-    return {"status": "ok", "database": db_status}
+    return {
+        "status": "ok",
+        "database": db_status,
+        "smtp": "configured" if settings.smtp_enabled else "not configured",
+        "mfa": "enabled" if settings.smtp_enabled else "disabled (configure SMTP to enable)",
+        "env": settings.app_env,
+    }
