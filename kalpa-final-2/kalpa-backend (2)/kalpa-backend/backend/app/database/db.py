@@ -5,7 +5,9 @@ from app.core.config import settings
 
 SQLALCHEMY_DATABASE_URL = settings.database_url
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+# check_same_thread is SQLite-only; ignored for PostgreSQL
+_connect_args = {"check_same_thread": False} if SQLALCHEMY_DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
