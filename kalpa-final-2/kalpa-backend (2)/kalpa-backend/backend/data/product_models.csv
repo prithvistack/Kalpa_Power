@@ -1,0 +1,4 @@
+model,type,power_rating,voltage,efficiency,extra_specs
+Kirloskar DG-100,Generator,100,415,88.5,"{""current_a"":139.2,""weight_kg"":1200,""cooling_type"":""Air Cooled"",""ip_rating"":""IP23""}"
+Voltamp T-160KVA,Transformer,160,11000,98.2,"{""current_a"":8.4,""weight_kg"":980,""cooling_type"":""Oil Cooled"",""ip_rating"":""IP55""}"
+Emerson UPS-20K,UPS,20,230,96.0,"{""current_a"":87,""weight_kg"":95,""cooling_type"":""Fan Cooled"",""ip_rating"":""IP20""}"

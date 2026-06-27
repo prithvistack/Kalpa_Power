@@ -1,0 +1,4 @@
+product_id,event_type,date,description,technician,cost
+KPL-GEN-9001,maintenance,2026-03-14,Preventive maintenance completed,Rajesh Kumar,12000
+KPL-TRA-9001,repair,2026-02-10,Tap changer repaired,Anita Sharma,54000
+KPL-UPS-9001,inspection,2026-04-21,Battery backup verified,Priya Nair,0

@@ -1,0 +1,4 @@
+product_id,qr_code,type,model,location,site,manufacture_year,installation_date,status,warranty_expiry
+KPL-GEN-9001,KPL-QR-GEN-9001,Generator,Kirloskar DG-100,Pune,Pune Site 1,2021,2021-08-12,operational,2026-12-31
+KPL-TRA-9001,KPL-QR-TRA-9001,Transformer,Voltamp T-160KVA,Mumbai,Mumbai Site 2,2015,2016-01-20,under_maintenance,2020-12-31
+KPL-UPS-9001,KPL-QR-UPS-9001,UPS,Emerson UPS-20K,Delhi,Delhi Site 3,2024,2024-05-05,operational,2029-12-31
