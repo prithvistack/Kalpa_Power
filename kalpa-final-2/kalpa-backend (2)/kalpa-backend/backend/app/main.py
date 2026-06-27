@@ -11,8 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.database.db import SessionLocal, engine, get_db
-from app.models.db_models import Base
+from app.database.db import SessionLocal, get_db
 from app.models.user import User
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
@@ -27,9 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
+# Schema is managed by Alembic — run `alembic upgrade head` before deploying.
 # Initialize app
 app = FastAPI(
     title="Kalpa Power Ltd — Product Intelligence API",

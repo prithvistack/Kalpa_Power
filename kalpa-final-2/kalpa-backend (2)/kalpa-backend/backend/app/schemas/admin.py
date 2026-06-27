@@ -1,3 +1,4 @@
+from datetime import date
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -10,9 +11,9 @@ class ProductCreateRequest(BaseModel):
     location: str
     site: str
     manufacture_year: int
-    installation_date: str
+    installation_date: Optional[date] = None   # accepts "YYYY-MM-DD" strings from JSON
     status: str = "operational"
-    warranty_expiry: str
+    warranty_expiry: Optional[date] = None     # accepts "YYYY-MM-DD" strings from JSON
     serial_number: Optional[str] = None
     power_rating: Optional[float] = None
     voltage: Optional[float] = None
@@ -23,7 +24,7 @@ class ProductCreateRequest(BaseModel):
 class ProductEventCreateRequest(BaseModel):
     product_id: str
     event_type: str
-    date: str
+    date: date                 # accepts "YYYY-MM-DD" strings from JSON
     description: str
     technician: str
     cost: Optional[float] = None

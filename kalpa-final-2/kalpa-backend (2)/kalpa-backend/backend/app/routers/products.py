@@ -1,16 +1,18 @@
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import exists, and_, or_, distinct
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+
 from app.core.dependencies import get_current_user
 from app.database.db import get_db
-from app.models.db_models import Product, ProductEvent
+from app.models.db_models import Product, ProductEvent, ProductModel
 from app.models.user import User
 from app.schemas.schemas import (
     ProductDetailOut, SearchPayload, SearchResponse,
-    ProductSearchResult, FilterOptions, IdentifyPayload
+    ProductSearchResult, FilterOptions, IdentifyPayload,
 )
 from app.services.tag_engine import compute_tags
-from datetime import date, datetime
 
 router = APIRouter()
 
@@ -59,60 +61,73 @@ def get_product(product_id: str, db: Session = Depends(get_db), _: User = Depend
 
 @router.post("/products/search", response_model=SearchResponse)
 def search_products(payload: SearchPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    today = date.today()
+
     q = db.query(Product)
 
+    # ── Exact-match filters pushed to SQL ────────────────────────────────────
     if payload.product_type:
-        q = q.join(Product.model).filter(Product.model.has(product_type=payload.product_type))
+        q = q.join(Product.model).filter(ProductModel.product_type == payload.product_type)
+
     if payload.location:
         q = q.filter(Product.location == payload.location)
+
     if payload.manufacture_year:
         q = q.filter(Product.manufacture_year == payload.manufacture_year)
 
-    all_products = q.all()
+    # ── Date-based filters pushed to SQL (possible after DATE column migration) ──
 
-    today = date.today()
+    # maintenance_due  → next_maintenance is not null AND <= today + 30 days
+    #                    (covers both maintenance_due and maintenance_overdue tags)
+    if payload.maintenance_due:
+        q = q.filter(
+            Product.next_maintenance.isnot(None),
+            Product.next_maintenance <= today + timedelta(days=30),
+        )
 
-    def matches_filters(p: Product) -> bool:
-        tags = compute_tags(p, p.events)
-        if payload.maintenance_due:
-            if "maintenance_due" not in tags and "maintenance_overdue" not in tags:
-                return False
-        if payload.recently_repaired:
-            if "recently_repaired" not in tags:
-                return False
-        return True
+    # recently_repaired → EXISTS a repair/maintenance/overhaul event in the last 90 days
+    if payload.recently_repaired:
+        ninety_days_ago = today - timedelta(days=90)
+        q = q.filter(
+            exists().where(
+                and_(
+                    ProductEvent.product_id == Product.product_id,
+                    ProductEvent.event_type.in_(["repair", "maintenance", "overhaul"]),
+                    ProductEvent.event_date >= ninety_days_ago,
+                )
+            )
+        )
 
-    filtered = [p for p in all_products if matches_filters(p)]
-    total = len(filtered)
-    page = filtered[payload.offset: payload.offset + payload.limit]
+    # ── Count before pagination (single query, no Python list) ───────────────
+    total = q.count()
 
-    results = []
-    for p in page:
-        tags = compute_tags(p, p.events)
-        results.append(ProductSearchResult(
+    # ── Pagination in SQL ─────────────────────────────────────────────────────
+    products = q.offset(payload.offset).limit(payload.limit).all()
+
+    # ── Build response — compute_tags only for the current page ──────────────
+    results = [
+        ProductSearchResult(
             product_id=p.product_id,
             product_type=p.model.product_type,
             location=p.location,
             manufacture_year=p.manufacture_year,
             status=p.status,
-            tags=tags,
-        ))
+            tags=compute_tags(p, p.events),
+        )
+        for p in products
+    ]
 
     return SearchResponse(results=results, total=total)
 
 
 @router.get("/meta/options", response_model=FilterOptions)
 def get_filter_options(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    from app.models.db_models import ProductModel
-    from sqlalchemy import distinct
-
     types = [r[0] for r in db.query(distinct(ProductModel.product_type)).all()]
     locations = [r[0] for r in db.query(distinct(Product.location)).all()]
     years = sorted(
         [r[0] for r in db.query(distinct(Product.manufacture_year)).all()],
-        reverse=True
+        reverse=True,
     )
-
     return FilterOptions(types=sorted(types), locations=sorted(locations), years=years)
 
 
@@ -128,10 +143,10 @@ def identify_product(payload: IdentifyPayload, db: Session = Depends(get_db), _:
         st = f"%{payload.search_text}%"
         p = db.query(Product).filter(
             or_(
-                Product.product_id.like(st),
-                Product.qr_code.like(st),
-                Product.serial_number.like(st),
-                Product.location.like(st),
+                Product.product_id.ilike(st),
+                Product.qr_code.ilike(st),
+                Product.serial_number.ilike(st),
+                Product.location.ilike(st),
             )
         ).first()
 

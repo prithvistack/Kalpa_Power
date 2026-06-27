@@ -1,5 +1,7 @@
+from datetime import date
 from pydantic import BaseModel
 from typing import List, Optional
+
 
 class ModelSpec(BaseModel):
     model_name: str
@@ -15,10 +17,11 @@ class ModelSpec(BaseModel):
     class Config:
         from_attributes = True
 
+
 class EventOut(BaseModel):
     id: str
     event_type: str
-    event_date: str
+    event_date: date          # DATE column — was str
     description: Optional[str] = None
     parts_replaced: Optional[str] = None
     performed_by: Optional[str] = None
@@ -27,6 +30,7 @@ class EventOut(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ProductDetailOut(BaseModel):
     product_id: str
     qr_code: str
@@ -34,18 +38,19 @@ class ProductDetailOut(BaseModel):
     location: str
     site: str
     manufacture_year: int
-    installation_date: Optional[str] = None
+    installation_date: Optional[date] = None   # DATE column — was Optional[str]
     status: str
-    warranty_expiry: Optional[str] = None
+    warranty_expiry: Optional[date] = None     # DATE column — was Optional[str]
     model: ModelSpec
     tags: List[str]
-    last_maintenance: Optional[str] = None
-    next_maintenance: Optional[str] = None
+    last_maintenance: Optional[date] = None    # DATE column — was Optional[str]
+    next_maintenance: Optional[date] = None    # DATE column — was Optional[str]
     notes: Optional[str] = None
     events: List[EventOut]
 
     class Config:
         from_attributes = True
+
 
 class ProductSearchResult(BaseModel):
     product_id: str
@@ -55,9 +60,11 @@ class ProductSearchResult(BaseModel):
     status: str
     tags: List[str]
 
+
 class SearchResponse(BaseModel):
     results: List[ProductSearchResult]
     total: int
+
 
 class SearchPayload(BaseModel):
     product_type: Optional[str] = None
@@ -68,10 +75,12 @@ class SearchPayload(BaseModel):
     limit: int = 50
     offset: int = 0
 
+
 class FilterOptions(BaseModel):
     types: List[str]
     locations: List[str]
     years: List[int]
+
 
 class IdentifyPayload(BaseModel):
     qr_code: Optional[str] = None
@@ -85,7 +94,7 @@ class NotificationOut(BaseModel):
     message: str
     product_id: Optional[str] = None
     read: bool
-    timestamp: str
+    timestamp: date            # DATE column — was str
 
     class Config:
         from_attributes = True

@@ -26,15 +26,15 @@ class Product(Base):
     product_id = Column(String, primary_key=True)
     qr_code = Column(String, unique=True, nullable=False)
     serial_number = Column(String, unique=True, nullable=False)
-    location = Column(String, nullable=False)
+    location = Column(String, nullable=False, index=True)
     site = Column(String, nullable=False)
-    manufacture_year = Column(Integer, nullable=False)
-    installation_date = Column(String)
-    status = Column(String, nullable=False, default="operational")
-    warranty_expiry = Column(String)
-    model_id = Column(String, ForeignKey("product_models.model_id"), nullable=False)
-    last_maintenance = Column(String, nullable=True)
-    next_maintenance = Column(String, nullable=True)
+    manufacture_year = Column(Integer, nullable=False, index=True)
+    installation_date = Column(Date, nullable=True)
+    status = Column(String, nullable=False, default="operational", index=True)
+    warranty_expiry = Column(Date, nullable=True, index=True)
+    model_id = Column(String, ForeignKey("product_models.model_id"), nullable=False, index=True)
+    last_maintenance = Column(Date, nullable=True)
+    next_maintenance = Column(Date, nullable=True, index=True)
     notes = Column(Text, nullable=True)
 
     model = relationship("ProductModel", back_populates="products")
@@ -45,9 +45,9 @@ class ProductEvent(Base):
     __tablename__ = "product_events"
 
     id = Column(String, primary_key=True)
-    product_id = Column(String, ForeignKey("products.product_id"), nullable=False)
-    event_type = Column(String, nullable=False)
-    event_date = Column(String, nullable=False)
+    product_id = Column(String, ForeignKey("products.product_id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)
+    event_date = Column(Date, nullable=False, index=True)
     description = Column(Text)
     parts_replaced = Column(String, nullable=True)
     performed_by = Column(String)
@@ -60,10 +60,10 @@ class ScanLog(Base):
     __tablename__ = "scan_logs"
 
     id = Column(String, primary_key=True)
-    product_id = Column(String, ForeignKey("products.product_id"))
+    product_id = Column(String, ForeignKey("products.product_id"), index=True)
     scan_type = Column(String)
     scan_value = Column(String)
-    scanned_at = Column(String)
+    scanned_at = Column(String)  # ISO 8601 datetime string — kept as VARCHAR
 
 
 class NotificationType(str, enum.Enum):
@@ -76,10 +76,10 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(String, primary_key=True)
-    type = Column(String, nullable=False)  # warranty, maintenance, system
+    type = Column(String, nullable=False)
     message = Column(String, nullable=False)
-    product_id = Column(String, ForeignKey("products.product_id"), nullable=True)
-    read = Column(Boolean, default=False)
-    timestamp = Column(String, nullable=False)
+    product_id = Column(String, ForeignKey("products.product_id"), nullable=True, index=True)
+    read = Column(Boolean, default=False, index=True)
+    timestamp = Column(Date, nullable=False)
 
     product = relationship("Product", foreign_keys=[product_id])
