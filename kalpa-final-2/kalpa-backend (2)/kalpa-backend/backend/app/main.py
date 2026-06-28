@@ -83,22 +83,38 @@ if settings.is_development:
     logger.info("Dev endpoints enabled at /dev/* (APP_ENV=%s)", settings.app_env)
 
 # ---------------------------------------------------------------------------
-# Startup: admin seeding
+# Startup: admin seeding  (Phase 3.8 — idempotent, email-specific)
 # ---------------------------------------------------------------------------
 def _seed_admin() -> None:
-    email = settings.default_admin_email.strip().lower()
-    password = settings.default_admin_password.strip()
+    """Guarantee the permanent demo admin account exists.
+
+    Idempotent: targets SEEDED_ADMIN_EMAIL specifically.
+    - If the account already exists with role=admin → no-op.
+    - If it exists with a lower role → upgrades it to admin.
+    - If it does not exist at all → creates it.
+    Does NOT skip just because other admin accounts exist.
+    """
+    email = settings.seeded_admin_email.strip().lower()
+    password = settings.seeded_admin_password.strip()
     if not email or not password:
+        logger.warning(
+            "Admin seeding skipped — SEEDED_ADMIN_EMAIL or SEEDED_ADMIN_PASSWORD not set in .env"
+        )
         return
     db = SessionLocal()
     try:
-        if db.query(User).filter(User.role == "admin").first():
-            return
-        if db.query(User).filter(User.email == email).first():
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            if existing.role != "admin":
+                existing.role = "admin"
+                db.commit()
+                logger.info("Admin seeding — upgraded %s to admin role", email)
+            else:
+                logger.info("Admin seeding — account already exists, no changes: %s", email)
             return
         db.add(User(email=email, password_hash=hash_password(password), role="admin"))
         db.commit()
-        logger.info("Default admin account created: %s", email)
+        logger.info("Admin seeding — permanent admin created: %s", email)
     except Exception as exc:
         logger.warning("Admin seeding failed: %s", exc)
         db.rollback()

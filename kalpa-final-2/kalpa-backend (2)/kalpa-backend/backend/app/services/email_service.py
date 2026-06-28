@@ -66,8 +66,8 @@ def send_welcome(to_email: str) -> bool:
     return send_email(to_email, subject, html)
 
 
-def send_password_reset(to_email: str, reset_token: str) -> bool:
-    subject, html = tmpl.password_reset_email(to_email, reset_token)
+def send_password_reset(to_email: str, reset_url: str) -> bool:
+    subject, html = tmpl.password_reset_email(to_email, reset_url)
     return send_email(to_email, subject, html)
 
 

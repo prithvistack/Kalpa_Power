@@ -12,18 +12,22 @@ from app.core.limiter import limiter
 from app.core.security import create_access_token, hash_password, verify_password
 from app.database.db import get_db
 from app.models.otp_token import OTPToken
+from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 from app.schemas.auth import (
+    ForgotPasswordRequest,
     GoogleLoginRequest,
     LoginRequest,
     MFARequiredResponse,
+    MessageResponse,
     PromoteRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     VerifyOTPRequest,
 )
 from app.services.audit_service import AuditAction, log_action
-from app.services.email_service import send_otp, send_welcome
+from app.services.email_service import send_otp, send_password_reset, send_welcome
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -48,9 +52,21 @@ def _hash_otp(otp: str) -> str:
     return hashlib.sha256(otp.encode()).hexdigest()
 
 
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def _clean_expired_otps(db: Session) -> None:
     now = datetime.now(timezone.utc)
     db.query(OTPToken).filter(OTPToken.expires_at < now).delete(synchronize_session=False)
+    db.commit()
+
+
+def _clean_expired_reset_tokens(db: Session) -> None:
+    now = datetime.now(timezone.utc)
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.expires_at < now
+    ).delete(synchronize_session=False)
     db.commit()
 
 
@@ -99,6 +115,12 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
 
     # If SMTP is not configured → bypass MFA and issue JWT directly (backward compat)
     if not settings.smtp_enabled:
+        log_action(AuditAction.LOGIN, user=user, entity_type="USER",
+                   entity_id=user.id, ip=_ip(request))
+        return _token_response(user)
+
+    # Seeded admin bypasses MFA — issues JWT directly without OTP
+    if user.email == settings.seeded_admin_email.strip().lower():
         log_action(AuditAction.LOGIN, user=user, entity_type="USER",
                    entity_id=user.id, ip=_ip(request))
         return _token_response(user)
@@ -272,3 +294,147 @@ def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
 
     log_action(AuditAction.LOGIN, user=user, entity_type="USER", entity_id=user.id)
     return _token_response(user)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/forgot-password  — Request a password reset link
+# ---------------------------------------------------------------------------
+_SAFE_RESET_MSG = (
+    "If an account exists for this email, a password reset link has been sent."
+)
+
+@router.post("/forgot-password", response_model=MessageResponse)
+@limiter.limit(_AUTH_RATE)
+def forgot_password(
+    request: Request,
+    payload: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    # Sweep expired tokens to keep the table clean
+    _clean_expired_reset_tokens(db)
+
+    user = db.query(User).filter(User.email == payload.email).first()
+
+    # Anti-enumeration: always return the same response regardless of whether
+    # the email exists in the database.
+    if not user:
+        return MessageResponse(message=_SAFE_RESET_MSG)
+
+    # Invalidate any previous reset tokens for this user (one active token at a time)
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    # Generate 256-bit cryptographically secure token; store only its SHA-256 hash
+    raw_token = secrets.token_hex(32)          # 64-char hex string, never logged
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.password_reset_expire_minutes
+    )
+
+    db.add(PasswordResetToken(
+        id=str(uuid4()),
+        user_id=user.id,
+        user_email=user.email,
+        hashed_token=_hash_reset_token(raw_token),
+        expires_at=expires_at,
+    ))
+    db.commit()
+
+    # Build the reset URL and send the email
+    reset_url = f"{settings.app_base_url}/reset-password?token={raw_token}"
+    sent = send_password_reset(user.email, reset_url)
+
+    log_action(
+        AuditAction.PASSWORD_RESET_REQUESTED,
+        user=user,
+        entity_type="USER",
+        entity_id=user.id,
+        new={"email_sent": sent, "expires_at": expires_at.isoformat()},
+        ip=_ip(request),
+    )
+
+    return MessageResponse(message=_SAFE_RESET_MSG)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/reset-password  — Consume token and set a new password
+# ---------------------------------------------------------------------------
+@router.post("/reset-password", response_model=MessageResponse)
+@limiter.limit(_AUTH_RATE)
+def reset_password(
+    request: Request,
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    hashed = _hash_reset_token(payload.token)
+
+    record = db.query(PasswordResetToken).filter(
+        PasswordResetToken.hashed_token == hashed
+    ).first()
+
+    # Token not found (invalid or already purged)
+    if not record:
+        log_action(
+            AuditAction.PASSWORD_RESET_FAILED,
+            ip=_ip(request),
+            new={"reason": "invalid_token"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link is invalid or has already been used.",
+        )
+
+    # Token already consumed
+    if record.used_at is not None:
+        log_action(
+            AuditAction.PASSWORD_RESET_FAILED,
+            user_email=record.user_email,
+            ip=_ip(request),
+            new={"reason": "token_already_used"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link has already been used. Please request a new one.",
+        )
+
+    # Token expired
+    expires = record.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires < now:
+        log_action(
+            AuditAction.PASSWORD_RESET_TOKEN_EXPIRED,
+            user_email=record.user_email,
+            ip=_ip(request),
+            new={"expired_at": record.expires_at.isoformat()},
+        )
+        db.delete(record)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link has expired. Please request a new one.",
+        )
+
+    # Fetch the user
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user:
+        db.delete(record)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Update the password and mark the token as used in a single transaction
+    user.password_hash = hash_password(payload.new_password)
+    record.used_at = now
+    db.commit()
+
+    log_action(
+        AuditAction.PASSWORD_RESET_COMPLETED,
+        user=user,
+        entity_type="USER",
+        entity_id=user.id,
+        ip=_ip(request),
+    )
+
+    return MessageResponse(message="Your password has been updated successfully. You can now sign in.")

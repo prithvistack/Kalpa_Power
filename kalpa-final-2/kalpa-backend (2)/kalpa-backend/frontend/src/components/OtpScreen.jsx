@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getApiErrorMessage, login, verifyOtp } from '../api/api';
+import KalpaLogo from './KalpaLogo';
 
 const OTP_DURATION = 5 * 60; // 300 seconds — must match backend OTP_EXPIRE_MINUTES
 
@@ -131,7 +132,7 @@ export default function OtpScreen({ initialSessionToken, email, password, onSucc
             className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
             style={{ background: '#6db891' }}
           >
-            <img src="/kalpalogo.png" alt="Kalpa Logo" width="32" height="32" />
+            <KalpaLogo size={32} />
           </div>
           <h1 className="text-4xl font-light" style={{ color: '#dde8e2' }}>Kalpa Power</h1>
           <p className="mt-3 text-sm" style={{ color: '#8aa89e' }}>Smart Solar Intelligence System</p>

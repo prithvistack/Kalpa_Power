@@ -1,227 +1,262 @@
-import { useState, useEffect, useRef } from 'react';
+import { AlertCircle, Bell, BellRing, RefreshCw, Settings, Shield, Wrench } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/api';
 
-export default function NotificationBell() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const dropdownRef = useRef(null);
-  const navigate = useNavigate();
+const TYPE_CONFIG = {
+  maintenance: { label: 'Maintenance', color: 'var(--warn)',    bg: 'rgba(217,119,6,0.12)',  Icon: Wrench },
+  warranty:    { label: 'Warranty',    color: 'var(--accent)',  bg: 'var(--accent-dim)',     Icon: Shield },
+  fault:       { label: 'Fault',       color: 'var(--danger)',  bg: 'rgba(192,57,43,0.10)',  Icon: AlertCircle },
+  system:      { label: 'System',      color: 'var(--text-3)',  bg: 'var(--bg-subtle)',      Icon: Settings },
+};
+const getTypeConfig = (type) =>
+  TYPE_CONFIG[type] || { label: 'Notification', color: 'var(--text-2)', bg: 'var(--bg-subtle)', Icon: BellRing };
 
-  // Fetch notifications
+export default function NotificationBell() {
+  const [isOpen, setIsOpen]           = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount]  = useState(0);
+  const [loading, setLoading]          = useState(false);
+  const [bellKey, setBellKey]          = useState(0);
+  const prevUnread = useRef(0);
+  const dropdownRef = useRef(null);
+  const navigate    = useNavigate();
+
   const fetchNotifications = async () => {
     try {
       setLoading(true);
       const response = await api.get('/notifications');
+      const count = response.data.unread_count || 0;
       setNotifications(response.data.notifications || []);
-      setUnreadCount(response.data.unread_count || 0);
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error);
-    } finally {
-      setLoading(false);
-    }
+      setUnreadCount(count);
+      if (count > prevUnread.current && prevUnread.current !== null) {
+        setBellKey(k => k + 1);
+      }
+      prevUnread.current = count;
+    } catch { /* silent */ }
+    finally { setLoading(false); }
   };
 
-  // Fetch on component mount
   useEffect(() => {
     fetchNotifications();
-    // Poll for notifications every 30 seconds
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
+    const id = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(id);
   }, []);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
+    if (!isOpen) return;
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setIsOpen(false);
     };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [isOpen]);
 
-  // Mark all as read
   const handleMarkAllRead = async () => {
     try {
       await api.post('/notifications/read-all');
       setUnreadCount(0);
-      // Update local state to mark all as read
-      setNotifications(notifications.map(n => ({ ...n, read: true })));
-    } catch (error) {
-      console.error('Failed to mark all as read:', error);
-    }
+      prevUnread.current = 0;
+      setNotifications(n => n.map(x => ({ ...x, read: true })));
+    } catch { /* silent */ }
   };
 
-  // Open dropdown and mark all as read
   const toggleDropdown = () => {
-    if (!isOpen && unreadCount > 0) {
-      handleMarkAllRead();
-    }
-    setIsOpen(!isOpen);
+    if (!isOpen && unreadCount > 0) handleMarkAllRead();
+    setIsOpen(o => !o);
   };
 
-  // Handle notification click
-  const handleNotificationClick = (notification) => {
-    if (notification.product_id) {
-      navigate(`/product/${notification.product_id}`);
-      setIsOpen(false);
-    }
-  };
-
-  // Get notification icon based on type
-  const getNotificationIcon = (type) => {
-    switch (type) {
-      case 'warranty':
-        return '⚠️';
-      case 'maintenance':
-        return '🔧';
-      case 'system':
-        return '➕';
-      default:
-        return '🔔';
-    }
+  const handleClick = (n) => {
+    if (n.product_id) { navigate(`/product/${n.product_id}`); setIsOpen(false); }
   };
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* Bell Button */}
+      {/* Bell button */}
       <button
         onClick={toggleDropdown}
-        className="relative p-2 rounded-lg transition-colors"
+        className="relative flex items-center justify-center p-2 rounded-lg transition-all"
         style={{
-          background: isOpen ? 'var(--border)' : 'transparent',
-          color: 'var(--text-2)',
+          background: isOpen ? 'var(--surface-hi)' : 'transparent',
+          color: isOpen ? 'var(--accent)' : 'var(--text-2)',
           border: '1px solid var(--border)',
+          cursor: 'pointer',
         }}
         title="Notifications"
       >
-        <span className="text-lg">🔔</span>
-        
-        {/* Red dot for unread */}
+        <span key={bellKey} className={unreadCount > 0 ? 'bell-anim' : ''} style={{ display: 'flex' }}>
+          <Bell size={15} />
+        </span>
         {unreadCount > 0 && (
           <span
-            className="absolute top-1 right-1 w-2 h-2 rounded-full"
-            style={{ background: '#ef4444' }}
-          />
+            className="absolute flex items-center justify-center"
+            style={{
+              top: '3px', right: '3px',
+              minWidth: '15px', height: '15px',
+              borderRadius: '99px', padding: '0 3px',
+              background: 'var(--danger)',
+              color: '#fff', fontSize: '9px', fontWeight: 700,
+              lineHeight: 1,
+            }}
+          >
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
         )}
       </button>
 
-      {/* Dropdown Panel */}
+      {/* Dropdown panel */}
       {isOpen && (
         <div
-          className="absolute right-0 mt-2 w-80 rounded-lg shadow-lg z-50 overflow-hidden"
+          className="absolute right-0 mt-2 rounded-xl overflow-hidden drop-in"
           style={{
-            background: 'var(--surface)',
+            width: '380px',
+            background: 'var(--overlay)',
             border: '1px solid var(--border)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.10)',
+            zIndex: 50,
           }}
         >
           {/* Header */}
           <div
-            className="px-4 py-3 flex items-center justify-between"
-            style={{
-              borderBottom: '1px solid var(--border)',
-            }}
+            className="flex items-center justify-between px-4 py-3.5"
+            style={{ borderBottom: '1px solid var(--border)' }}
           >
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--text)' }}>
-              Notifications
-            </h3>
-            {unreadCount > 0 && (
-              <span
-                className="text-xs px-2 py-1 rounded"
-                style={{
-                  background: '#fee2e2',
-                  color: '#dc2626',
-                }}
-              >
-                {unreadCount} new
-              </span>
-            )}
-          </div>
-
-          {/* Notifications List */}
-          <div className="max-h-96 overflow-y-auto">
-            {loading ? (
-              <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-2)' }}>
-                Loading...
-              </div>
-            ) : notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-2)' }}>
-                No notifications
-              </div>
-            ) : (
-              notifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  onClick={() => handleNotificationClick(notification)}
-                  className={`px-4 py-3 cursor-pointer transition-colors border-b last:border-b-0 ${
-                    notification.read ? '' : 'opacity-100'
-                  }`}
+            <div className="flex items-center gap-2.5">
+              <Bell size={14} style={{ color: 'var(--accent)' }} />
+              <h3 style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>Notifications</h3>
+              {unreadCount > 0 && (
+                <span
                   style={{
-                    borderColor: 'var(--border)',
-                    background: notification.read ? 'transparent' : 'rgba(212, 175, 55, 0.05)',
-                    color: 'var(--text)',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--border)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = notification.read ? 'transparent' : 'rgba(212, 175, 55, 0.05)';
+                    fontSize: '10px', fontWeight: 700,
+                    padding: '2px 7px', borderRadius: '99px',
+                    background: 'rgba(192,57,43,0.12)',
+                    color: 'var(--danger)',
                   }}
                 >
-                  <div className="flex gap-3">
-                    {/* Icon */}
-                    <span className="text-lg flex-shrink-0">
-                      {getNotificationIcon(notification.type)}
-                    </span>
-                    
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium" style={{ color: 'var(--text)' }}>
-                        {notification.message}
-                      </p>
-                      {notification.product_id && (
-                        <p
-                          className="text-xs mt-1"
-                          style={{ color: 'var(--text-2)' }}
-                        >
-                          {notification.product_id}
-                        </p>
-                      )}
-                      <p
-                        className="text-xs mt-1"
-                        style={{ color: 'var(--text-2)' }}
+                  {unreadCount} new
+                </span>
+              )}
+            </div>
+            <button
+              onClick={fetchNotifications}
+              className="flex items-center justify-center p-1.5 rounded-lg transition-colors"
+              style={{ color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-3)'}
+              title="Refresh"
+            >
+              <RefreshCw size={12} />
+            </button>
+          </div>
+
+          {/* List */}
+          <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+            {loading ? (
+              <div className="py-10 flex items-center justify-center gap-2" style={{ color: 'var(--text-3)' }}>
+                <svg className="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+                <span style={{ fontSize: '13px' }}>Loading…</span>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="py-12 text-center px-6">
+                <div
+                  className="mx-auto mb-3 flex items-center justify-center rounded-full"
+                  style={{ width: '44px', height: '44px', background: 'var(--bg-subtle)', color: 'var(--text-3)' }}
+                >
+                  <Bell size={20} />
+                </div>
+                <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-2)' }}>No notifications</p>
+                <p style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
+                  Warranty & maintenance alerts will appear here
+                </p>
+              </div>
+            ) : (
+              notifications.map((n, idx) => {
+                const cfg = getTypeConfig(n.type);
+                const TypeIcon = cfg.Icon;
+                return (
+                  <div
+                    key={n.id}
+                    onClick={() => handleClick(n)}
+                    style={{
+                      padding: '12px 16px',
+                      cursor: n.product_id ? 'pointer' : 'default',
+                      borderBottom: idx < notifications.length - 1 ? '1px solid var(--border)' : 'none',
+                      background: n.read ? 'transparent' : 'var(--accent-glow)',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hi)'}
+                    onMouseLeave={e => e.currentTarget.style.background = n.read ? 'transparent' : 'var(--accent-glow)'}
+                  >
+                    <div className="flex gap-3">
+                      {/* Type icon */}
+                      <div
+                        className="flex items-center justify-center rounded-lg flex-shrink-0"
+                        style={{
+                          width: '32px', height: '32px',
+                          background: cfg.bg,
+                          color: cfg.color,
+                          marginTop: '1px',
+                        }}
                       >
-                        {new Date(notification.timestamp).toLocaleDateString()}
-                      </p>
+                        <TypeIcon size={14} />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          {!n.read && (
+                            <span style={{
+                              display: 'inline-block', width: '6px', height: '6px',
+                              borderRadius: '50%', background: 'var(--accent)', flexShrink: 0,
+                            }} />
+                          )}
+                          <span
+                            style={{
+                              fontSize: '10px', fontWeight: 600, padding: '1px 6px',
+                              borderRadius: '4px', background: cfg.bg, color: cfg.color,
+                              textTransform: 'uppercase', letterSpacing: '0.04em',
+                            }}
+                          >
+                            {cfg.label}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '12.5px', color: 'var(--text)', lineHeight: '1.4' }}>{n.message}</p>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '5px', alignItems: 'center' }}>
+                          {n.product_id && (
+                            <span style={{
+                              fontSize: '10px', color: 'var(--accent)',
+                              fontFamily: 'monospace', fontWeight: 600,
+                            }}>
+                              {n.product_id}
+                            </span>
+                          )}
+                          <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>
+                            {new Date(n.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </span>
+                          {n.product_id && (
+                            <span style={{ fontSize: '10px', color: 'var(--accent)', marginLeft: 'auto' }}>
+                              View →
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
-          {/* Footer - Only show if there are notifications */}
+          {/* Footer */}
           {notifications.length > 0 && (
             <div
-              className="px-4 py-3 text-center border-t"
-              style={{
-                borderColor: 'var(--border)',
-              }}
+              className="px-4 py-2.5 text-center"
+              style={{ borderTop: '1px solid var(--border)' }}
             >
-              <button
-                onClick={fetchNotifications}
-                className="text-xs font-medium transition-colors"
-                style={{
-                  color: 'var(--accent)',
-                }}
-              >
-                ↻ Refresh
-              </button>
+              <p style={{ fontSize: '11px', color: 'var(--text-3)' }}>
+                {notifications.length} notification{notifications.length !== 1 ? 's' : ''} · updates every 30s
+              </p>
             </div>
           )}
         </div>

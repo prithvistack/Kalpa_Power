@@ -116,25 +116,51 @@ def welcome_email(to_email: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 # 3. Password Reset
 # ---------------------------------------------------------------------------
-def password_reset_email(to_email: str, reset_token: str) -> tuple[str, str]:
+def password_reset_email(to_email: str, reset_url: str) -> tuple[str, str]:
     body = f"""
-      <h2 style="color:#1a3a5c;margin:0 0 16px 0;">Password Reset Request</h2>
+      <h2 style="color:#1a3a5c;margin:0 0 16px 0;">&#128274; Password Reset Request</h2>
       <p style="color:#495057;line-height:1.6;">
-        A password reset was requested for <strong>{to_email}</strong>.
+        Hello,<br><br>
+        We received a request to reset the password for your Kalpa Power account
+        associated with <strong>{to_email}</strong>.
       </p>
       <p style="color:#495057;line-height:1.6;">
-        Use the token below in the password-reset API endpoint.
-        It expires in 15 minutes.
+        Click the button below to set a new password. This link is valid for
+        <strong>15 minutes</strong> and can only be used once.
       </p>
-      <div style="background:#f0f4f8;border-left:4px solid #dc3545;border-radius:6px;
-                  padding:20px;margin:20px 0;word-break:break-all;">
-        <code style="font-size:14px;color:#1a3a5c;">{reset_token}</code>
+      <!-- CTA Button -->
+      <div style="text-align:center;margin:32px 0;">
+        <a href="{reset_url}"
+           style="display:inline-block;background:linear-gradient(135deg,#1a3a5c 0%,#2d6a9f 100%);
+                  color:#ffffff;text-decoration:none;padding:14px 36px;border-radius:6px;
+                  font-size:16px;font-weight:700;letter-spacing:0.5px;">
+          Reset My Password
+        </a>
       </div>
-      <p style="color:#868e96;font-size:13px;">
-        If you did not request a password reset, ignore this email.
-        Your password will not change.
+      <!-- Fallback URL -->
+      <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;
+                  padding:16px;margin:20px 0;">
+        <p style="color:#6c757d;font-size:12px;margin:0 0 6px 0;">
+          If the button above doesn't work, copy and paste this link into your browser:
+        </p>
+        <p style="color:#1a3a5c;font-size:12px;margin:0;word-break:break-all;">
+          {reset_url}
+        </p>
+      </div>
+      <!-- Expiry notice -->
+      <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;
+                  padding:12px 16px;margin-top:16px;">
+        <strong style="color:#856404;">&#8987; This link expires in 15 minutes</strong><br>
+        <span style="color:#856404;font-size:13px;">
+          If it has expired, visit the login page and click "Forgot Password?" to request a new link.
+        </span>
+      </div>
+      <!-- Ignore notice -->
+      <p style="color:#868e96;font-size:13px;margin-top:20px;line-height:1.6;">
+        If you did not request a password reset, you can safely ignore this email.
+        Your password will remain unchanged, and no action is required on your part.
       </p>"""
-    return _wrap("Kalpa Password Reset Request", body)
+    return _wrap("Kalpa Power — Password Reset", body)
 
 
 # ---------------------------------------------------------------------------
